@@ -9,23 +9,30 @@ const StudentPage = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [position, setPosition] = useState<GeolocationPosition | null>(null);
     const [positionError, setPositionError] = useState<string | null>(null);
+    const [isGettingLocation, setIsGettingLocation] = useState<boolean>(true);
 
     // Request geolocation permission early
     useEffect(() => {
         if (navigator.geolocation) {
+            setIsGettingLocation(true);
             const watchId = navigator.geolocation.watchPosition(
                 (pos) => {
                     setPosition(pos);
                     setPositionError(null);
+                    setIsGettingLocation(false);
                 },
                 (err) => {
                     setPositionError(`Geolocation error: ${err.message}`);
+                    setIsGettingLocation(false);
                 },
                 { enableHighAccuracy: true, maximumAge: 30000 }
             );
-
+            
             // Cleanup function to remove the watcher
             return () => navigator.geolocation.clearWatch(watchId);
+        } else {
+            setPositionError("Your browser doesn't support geolocation");
+            setIsGettingLocation(false);
         }
     }, []);
 
@@ -39,7 +46,7 @@ const StudentPage = () => {
         const R = 6371000; // Earth's radius in meters
         const dLat = (lat2 - lat1) * (Math.PI / 180);
         const dLon = (lon2 - lon1) * (Math.PI / 180);
-        const a =
+        const a = 
             Math.sin(dLat / 2) * Math.sin(dLat / 2) +
             Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
@@ -67,11 +74,11 @@ const StudentPage = () => {
         try {
             // Query Firestore for the class code
             const q = query(
-                collection(db, 'present-class'),
-                where('classCode', '==', classCode),
+                collection(db, 'present-class'), 
+                where('classCode', '==', classCode), 
                 limit(1)
             );
-
+            
             const querySnapshot = await getDocs(q);
 
             if (!querySnapshot.empty) {
@@ -110,6 +117,16 @@ const StudentPage = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    // Determine button state
+    const isButtonDisabled = isLoading || position === null || isGettingLocation;
+    
+    // Button text based on state
+    const getButtonText = () => {
+        if (isLoading) return 'Processing...';
+        if (isGettingLocation) return 'Getting location...';
+        return 'Access the Attendance Form';
     };
 
     return (
@@ -161,13 +178,13 @@ const StudentPage = () => {
                             transition duration-300 
                             text-sm sm:text-base
                             text-white
-                            ${isLoading
-                                ? 'bg-gray-400 cursor-not-allowed'
+                            ${isButtonDisabled 
+                                ? 'bg-gray-400 cursor-not-allowed' 
                                 : 'bg-blue-500 hover:bg-blue-600'}
                         `}
-                        disabled={isLoading}
+                        disabled={isButtonDisabled}
                     >
-                        {isLoading ? 'Processing...' : 'Access the Attendance Form'}
+                        {getButtonText()}
                     </button>
                 </div>
             </div>
