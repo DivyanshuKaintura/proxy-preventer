@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -8,55 +8,77 @@ const TeacherPage = () => {
     const [teacherName, setTeacherName] = useState('');
     const [classCode, setClassCode] = useState('');
     const [googleLink, setGoogleLink] = useState('');
-    // const [expirationTime, setExpirationTime] = useState(5);
     const [range, setRange] = useState('');
     const [coordinates, setCoordinates] = useState({ lat: '', lng: '' });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [locationStatus, setLocationStatus] = useState('');
 
-    const handleGenerateCoordinates = () => {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setCoordinates({
-                        lat: position.coords.latitude.toString(),
-                        lng: position.coords.longitude.toString(),
-                    });
-                },
-                (error) => {
-                    console.error('Error getting location:', error);
-                    alert('Unable to get location. Please enable location permissions.');
-                }
-            );
-        } else {
-            alert('Geolocation is not supported by your browser.');
+    // Pre-check geolocation availability
+    useEffect(() => {
+        if (!navigator.geolocation) {
+            setLocationStatus('Geolocation is not supported by your browser.');
         }
-    };
+    }, []);
 
+    // Memoized function to get current location
+    const handleGenerateCoordinates = useCallback(() => {
+        if (!navigator.geolocation) {
+            alert('Geolocation is not supported by your browser.');
+            return;
+        }
+
+        setLocationStatus('Getting your location...');
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setCoordinates({
+                    lat: position.coords.latitude.toString(),
+                    lng: position.coords.longitude.toString(),
+                });
+                setLocationStatus('');
+            },
+            (error) => {
+                console.error('Error getting location:', error);
+                setLocationStatus('Unable to get location. Please enable location permissions.');
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    }, []);
+
+    // Form submission handler
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
+        if (isSubmitting) return;
+
+        setIsSubmitting(true);
+
         try {
-            const docRef = await addDoc(collection(db, 'present-class'), {
+            await addDoc(collection(db, 'present-class'), {
                 teacherName,
                 classCode,
                 googleLink,
-                range,
-                // expirationTime,
-                coordinates,
+                range: Number(range), // Convert to number here
+                coordinates: {
+                    lat: Number(coordinates.lat), // Convert to number
+                    lng: Number(coordinates.lng), // Convert to number
+                },
                 createdAt: serverTimestamp(),
             });
-            console.log('Document written with ID: ', docRef.id);
 
             // Reset form after submission
             setTeacherName('');
             setClassCode('');
             setGoogleLink('');
-            // setExpirationTime(5);
+            setRange('');
             setCoordinates({ lat: '', lng: '' });
 
             alert('Form submitted successfully!');
         } catch (error) {
             console.error('Error adding document: ', error);
             alert('Failed to submit form');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -81,48 +103,54 @@ const TeacherPage = () => {
                 <form onSubmit={handleSubmit} className="space-y-5">
                     {/* Teacher Name */}
                     <div>
-                        <label className="block text-gray-700 font-medium mb-2">Teacher Name</label>
+                        <label htmlFor="teacherName" className="block text-gray-700 font-medium mb-2">Teacher Name</label>
                         <input
+                            id="teacherName"
                             type="text"
                             value={teacherName}
                             onChange={(e) => setTeacherName(e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200 text-gray-800 placeholder-gray-400"
                             placeholder="Enter your name"
                             required
+                            disabled={isSubmitting}
                         />
-
                     </div>
 
                     {/* Class Code */}
                     <div>
-                        <label className="block text-gray-700 font-medium mb-2">Class Code</label>
+                        <label htmlFor="classCode" className="block text-gray-700 font-medium mb-2">Class Code</label>
                         <input
+                            id="classCode"
                             type="text"
                             value={classCode}
                             onChange={(e) => setClassCode(e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200 text-gray-800 placeholder-gray-400"
                             placeholder="e.g. MATH101"
                             required
+                            disabled={isSubmitting}
                         />
                     </div>
 
                     {/* Google Link */}
                     <div>
-                        <label className="block text-gray-700 font-medium mb-2">Google Form Link</label>
+                        <label htmlFor="googleLink" className="block text-gray-700 font-medium mb-2">Google Form Link</label>
                         <input
+                            id="googleLink"
                             type="url"
                             value={googleLink}
                             onChange={(e) => setGoogleLink(e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200 text-gray-800 placeholder-gray-400"
                             placeholder="https://forms.google.com/..."
                             required
+                            disabled={isSubmitting}
                         />
                     </div>
 
                     {/* Range */}
                     <div>
-                        <label className="block text-gray-700 font-medium mb-2">Range</label>
+                        <label htmlFor="range" className="block text-gray-700 font-medium mb-2">Range</label>
                         <input
+                            id="range"
                             type="text"
                             value={range}
                             onChange={(e) => {
@@ -136,26 +164,9 @@ const TeacherPage = () => {
                             placeholder="100 (in meters)"
                             inputMode="numeric"
                             required
+                            disabled={isSubmitting}
                         />
                     </div>
-
-
-                    {/* Expiration Time */}
-                    {/* <div>
-                        <label className="block text-gray-700 font-medium mb-2">Expiration Time</label>
-                        <select
-                            value={expirationTime}
-                            onChange={(e) => setExpirationTime(Number(e.target.value))}
-                            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white transition duration-200 text-gray-800 placeholder-gray-400"
-                            required
-                        >
-                            {[5, 10, 15, 30, 60].map((time) => (
-                                <option key={time} value={time}>
-                                    {time} minutes
-                                </option>
-                            ))}
-                        </select>
-                    </div> */}
 
                     {/* Coordinates */}
                     <div className="space-y-4">
@@ -164,15 +175,24 @@ const TeacherPage = () => {
                             <button
                                 type="button"
                                 onClick={handleGenerateCoordinates}
-                                className="px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition duration-300 flex items-center"
+                                className={`px-3 py-2 text-white text-sm rounded-lg transition duration-300 flex items-center ${locationStatus === 'Getting your location...'
+                                        ? 'bg-blue-400 cursor-not-allowed'
+                                        : 'bg-blue-500 hover:bg-blue-600'
+                                    }`}
+                                disabled={locationStatus === 'Getting your location...' || isSubmitting}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
-                                Get Current Location
+                                {locationStatus === 'Getting your location...' ? 'Getting Location...' : 'Get Current Location'}
                             </button>
                         </div>
+
+                        {locationStatus && locationStatus !== 'Getting your location...' && (
+                            <div className="text-red-500 text-sm">{locationStatus}</div>
+                        )}
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <input
@@ -182,6 +202,7 @@ const TeacherPage = () => {
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200 text-gray-800 placeholder-gray-400"
                                     placeholder="Latitude"
                                     required
+                                    disabled={isSubmitting}
                                 />
                             </div>
                             <div>
@@ -192,6 +213,7 @@ const TeacherPage = () => {
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200 text-gray-800 placeholder-gray-400"
                                     placeholder="Longitude"
                                     required
+                                    disabled={isSubmitting}
                                 />
                             </div>
                         </div>
@@ -201,9 +223,11 @@ const TeacherPage = () => {
                     <div className="pt-2">
                         <button
                             type="submit"
-                            className="w-full bg-blue-500 text-white py-3 rounded-lg hover:bg-blue-600 transition duration-300 font-medium shadow-md"
+                            className={`w-full py-3 rounded-lg transition duration-300 font-medium shadow-md text-white ${isSubmitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'
+                                }`}
+                            disabled={isSubmitting}
                         >
-                            Create Class Form
+                            {isSubmitting ? 'Submitting...' : 'Create Class Form'}
                         </button>
                     </div>
                 </form>

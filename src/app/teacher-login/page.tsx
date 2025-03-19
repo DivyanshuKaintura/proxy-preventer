@@ -6,15 +6,22 @@ import { useRouter } from 'next/navigation';
 const TeacherLoginPage = () => {
     const password = 'teacher123';
     const [passwordInput, setPasswordInput] = useState('');
+    const [isLoading, setLoading] = useState(false);
     const router = useRouter(); // Import from next/navigation
 
     const handleSubmit = () => {
+        if (isLoading) return;
+        setLoading(true);
+        // create timeout of 2 seconds to simulate server response
+        // setTimeout(() => {
         if (passwordInput === password) {
-            console.log('Login Successful');
+            // console.log('Login Successful');
             router.push('/teacher'); // Redirect to /teacher
         } else {
             alert('Login Failed');
         }
+        setLoading(false);
+        // }, 100);
     };
 
     return (
@@ -48,7 +55,7 @@ const TeacherLoginPage = () => {
                     />
                     <button
                         onClick={handleSubmit}
-                        className="
+                        className={` 
                             w-full 
                             bg-blue-500 
                             text-white 
@@ -57,7 +64,8 @@ const TeacherLoginPage = () => {
                             hover:bg-blue-600 
                             transition duration-300 
                             text-sm sm:text-base
-                        "
+                            ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}
+                        `}
                     >
                         Login
                     </button>

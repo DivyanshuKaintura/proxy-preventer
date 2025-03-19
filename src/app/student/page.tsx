@@ -1,14 +1,51 @@
 'use client';
 
-import React, { useState } from 'react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import React, { useState, useCallback, useEffect } from 'react';
+import { collection, getDocs, query, where, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-// import { useRouter } from 'next/router';
 
 const StudentPage = () => {
-    const [classCode, setClassCode] = useState('');
+    const [classCode, setClassCode] = useState<string>('');
+    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [position, setPosition] = useState<GeolocationPosition | null>(null);
+    const [positionError, setPositionError] = useState<string | null>(null);
 
-    // const router = useRouter();
+    // Request geolocation permission early
+    useEffect(() => {
+        if (navigator.geolocation) {
+            const watchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    setPosition(pos);
+                    setPositionError(null);
+                },
+                (err) => {
+                    setPositionError(`Geolocation error: ${err.message}`);
+                },
+                { enableHighAccuracy: true, maximumAge: 30000 }
+            );
+
+            // Cleanup function to remove the watcher
+            return () => navigator.geolocation.clearWatch(watchId);
+        }
+    }, []);
+
+    // Memoized distance calculation function
+    const getDistanceFromLatLonInMeters = useCallback((
+        lat1: number,
+        lon1: number,
+        lat2: number,
+        lon2: number
+    ) => {
+        const R = 6371000; // Earth's radius in meters
+        const dLat = (lat2 - lat1) * (Math.PI / 180);
+        const dLon = (lon2 - lon1) * (Math.PI / 180);
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }, []);
 
     const handleAccessForm = async () => {
         if (!classCode) {
@@ -16,56 +53,53 @@ const StudentPage = () => {
             return;
         }
 
+        if (!position) {
+            if (positionError) {
+                alert(positionError);
+            } else {
+                alert('Waiting for your location. Please try again in a moment.');
+            }
+            return;
+        }
+
+        setIsLoading(true);
+
         try {
-            // Query Firestore to check if class code exists
-            const q = query(collection(db, 'present-class'), where('classCode', '==', classCode));
+            // Query Firestore for the class code
+            const q = query(
+                collection(db, 'present-class'),
+                where('classCode', '==', classCode),
+                limit(1)
+            );
+
             const querySnapshot = await getDocs(q);
 
             if (!querySnapshot.empty) {
                 const doc = querySnapshot.docs[0];
-                const googleLink = doc.data().googleLink;
-                const coordinates = doc.data().coordinates; // { lat, lng }
-                const range = doc.data().range;
-                console.log('coordinates:', coordinates);
+                const classData = doc.data();
+                const { googleLink, coordinates, range } = classData;
 
                 if (!coordinates || !coordinates.lat || !coordinates.lng) {
                     alert('Invalid class coordinates');
+                    setIsLoading(false);
                     return;
                 }
 
-                // Get current location
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        (position) => {
-                            const userLat = position.coords.latitude;
-                            const userLng = position.coords.longitude;
+                const distance = getDistanceFromLatLonInMeters(
+                    position.coords.latitude,
+                    position.coords.longitude,
+                    coordinates.lat,
+                    coordinates.lng
+                );
 
-                            const distance = getDistanceFromLatLonInMeters(
-                                userLat,
-                                userLng,
-                                coordinates.lat,
-                                coordinates.lng
-                            );
-
-                            console.log(`Distance: ${distance} meters`);
-
-                            if (distance <= Number(range)) {
-                                if (googleLink) {
-                                    window.location.href = googleLink;
-                                } else {
-                                    alert('Google Form link not found');
-                                }
-                            } else {
-                                alert(`You are too far from the classroom. Distance: ${Math.round(distance)} meters`);
-                            }
-                        },
-                        (error) => {
-                            console.error('Error getting location:', error);
-                            alert('Failed to get current location. Please enable location services.');
-                        }
-                    );
+                if (distance <= Number(range)) {
+                    if (googleLink) {
+                        window.location.href = googleLink;
+                    } else {
+                        alert('Google Form link not found');
+                    }
                 } else {
-                    alert('Geolocation is not supported by your browser.');
+                    alert(`You are too far from the classroom. Distance: ${Math.round(distance)} meters`);
                 }
             } else {
                 alert('Invalid class code');
@@ -73,35 +107,10 @@ const StudentPage = () => {
         } catch (error) {
             console.error('Error checking class code:', error);
             alert('Failed to verify class code');
+        } finally {
+            setIsLoading(false);
         }
     };
-
-    // Haversine formula to calculate distance between two coordinates in meters
-    const getDistanceFromLatLonInMeters = (
-        lat1: number,
-        lon1: number,
-        lat2: number,
-        lon2: number
-    ) => {
-        const R = 6371000; // Radius of the Earth in meters
-        const dLat = deg2rad(lat2 - lat1);
-        const dLon = deg2rad(lon2 - lon1);
-        const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(deg2rad(lat1)) *
-            Math.cos(deg2rad(lat2)) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distance = R * c; // Distance in meters
-        return distance;
-    };
-
-    // Convert degrees to radians
-    const deg2rad = (deg: number) => {
-        return deg * (Math.PI / 180);
-    };
-
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -111,6 +120,13 @@ const StudentPage = () => {
                     Student Attendance
                 </h1>
 
+                {/* Only show error message if there is one */}
+                {positionError && (
+                    <div className="mb-4 text-red-500 text-sm text-center">
+                        {positionError}
+                    </div>
+                )}
+
                 {/* Class Code Input */}
                 <div className="space-y-4">
                     <input
@@ -119,36 +135,39 @@ const StudentPage = () => {
                         onChange={(e) => setClassCode(e.target.value)}
                         placeholder="Enter class code"
                         className="
-              w-full 
-              p-3 
-              border 
-              border-gray-300 
-              rounded-lg 
-              focus:outline-none 
-              focus:ring-2 
-              focus:ring-blue-400 
-              transition duration-300 
-              placeholder-gray-400 
-              text-gray-800 
-              text-sm sm:text-base
-            "
+                            w-full 
+                            p-3 
+                            border 
+                            border-gray-300 
+                            rounded-lg 
+                            focus:outline-none 
+                            focus:ring-2 
+                            focus:ring-blue-400 
+                            transition duration-300 
+                            placeholder-gray-400 
+                            text-gray-800 
+                            text-sm sm:text-base
+                        "
+                        disabled={isLoading}
                     />
 
                     {/* Access Button */}
                     <button
                         onClick={handleAccessForm}
-                        className="
-              w-full 
-              bg-blue-500 
-              text-white 
-              py-3 
-              rounded-lg 
-              hover:bg-blue-600 
-              transition duration-300 
-              text-sm sm:text-base
-            "
+                        className={`
+                            w-full 
+                            py-3 
+                            rounded-lg 
+                            transition duration-300 
+                            text-sm sm:text-base
+                            text-white
+                            ${isLoading
+                                ? 'bg-gray-400 cursor-not-allowed'
+                                : 'bg-blue-500 hover:bg-blue-600'}
+                        `}
+                        disabled={isLoading}
                     >
-                        Access the Attendance Form
+                        {isLoading ? 'Processing...' : 'Access the Attendance Form'}
                     </button>
                 </div>
             </div>
